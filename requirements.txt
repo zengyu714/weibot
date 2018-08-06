@@ -1,0 +1,5 @@
+yattag==1.10.0
+requests==2.18.4
+rsa==3.4.2
+tqdm==4.23.2
+beautifulsoup4==4.6.1

@@ -9,6 +9,7 @@ from urllib import parse
 
 import requests
 import rsa
+from bs4 import BeautifulSoup
 from tqdm import tqdm
 from yattag import Doc
 
@@ -29,6 +30,7 @@ class WeiBot:
             "User-Agent"     : "Mozilla/5.0 (Windows NT 6.3; WOW64; rv:41.0) Gecko/20100101 Firefox/41.0",
             "Accept-Language": "zh"
         }
+
         # login
         self.username = self.get_username(username)
         self.server_data = self.get_server_data()
@@ -115,6 +117,7 @@ class WeiBot:
     def login_mob(self):
         """
         Login from pc cookies
+        Ref: https://github.com/xchaoinfo/fuck-login/blob/master/003%20weibo.cn/m.weibo_jump_from_com.py
         """
 
         if not self.login_pc():
@@ -218,24 +221,57 @@ class WeiBot:
 
     def generate_html(self):
         if self.debug:
-            pages = sorted(list(self.pages_cache_dir.iterdir()))
+            pages = sorted(list(self.pages_cache_dir.glob('page_content_*')))
         else:
             self.cache_mob_pages()
-            pages = sorted(list(self.pages_cache_dir.iterdir()))
+            pages = sorted(list(self.pages_cache_dir.glob('page_content_*')))
 
         print(f"===> Generating HTML...\n")
 
         doc, tag, text, line = Doc().ttl()
         doc.asis('<!DOCTYPE html>')
 
-        def _diplay_text(tag, text, info):
+        def _display_emoji(doc, tag, emoji):
+            with tag('span', klass='emoji'):
+                doc.stag('img',
+                         src='http:' + emoji.get('src'),
+                         klass='span_image',
+                         style=emoji.get('style'))
+
+        def _display_text(doc, tag, text, info):
             with tag('div', klass='mblog_info'):
                 text('{} @ {} << {}'.format(
                     info['name'], info['create_time'], info['source']))
             with tag('div', klass='mblog_text'):
-                text(info['text'])
+                # parse text
+                html = info['text']
+                soup = BeautifulSoup(html, 'lxml')
+                soup_it = soup.descendants
+                for descendant in soup_it:
+                    # 1. plain text
+                    if isinstance(descendant, str):
+                        text(descendant)
+                    # 2. blank line
+                    elif descendant.name == 'br':
+                        doc.stag('br')
+                    # 3. images
+                    elif descendant.attrs:
+                        # embedded url, E.g., "查看图片" / "秒拍视频"
+                        is_url = descendant.get('data-url')
+                        if is_url and descendant.text:
+                            _display_emoji(doc, tag, descendant.img)
+                            with tag('a', href=is_url):
+                                text(descendant.text)
+                            [next(soup_it) for _ in range(4)]
 
-        def _diplay_images(tag, info):
+                        # emoji
+                        is_emoji = descendant.get('class')
+                        if is_emoji and 'url-icon' in is_emoji:
+                            emoji = descendant.contents[0]
+                            _display_emoji(doc, tag, emoji)
+                            next(soup_it)
+
+        def _display_images(tag, info):
             if info['has_pic']:
                 for pic in info['has_pic']:
                     with tag('span', klass='mblog_image'):
@@ -266,8 +302,8 @@ class WeiBot:
                         # ================================================================================
                         doc.stag('hr')
 
-                        _diplay_text(tag, text, info)
-                        _diplay_images(tag, info)
+                        _display_text(doc, tag, text, info)
+                        _display_images(tag, info)
 
                         if info['has_retweet']:
                             # retweet deliminator
@@ -276,8 +312,8 @@ class WeiBot:
                                 text('Retweet')
 
                             retweet = info['has_retweet']
-                            _diplay_text(tag, text, retweet)
-                            _diplay_images(tag, retweet)
+                            _display_text(doc, tag, text, retweet)
+                            _display_images(tag, retweet)
 
                         # deliminator
                         doc.stag('hr')
@@ -288,8 +324,9 @@ class WeiBot:
                 time.strftime("%Y%m%d", time.localtime())), 'w+', encoding='utf-8') as f:
             f.write(backup)
 
+        print('  Backup Done ~~  '.center(50, '#'))
 
-if __name__ == "__main__":
-    wb = WeiBot(debug=False)
+
+if __name__ == '__main__':
+    wb = WeiBot()
     wb.generate_html()
-    # fire.Fire(WeiBotPC)
