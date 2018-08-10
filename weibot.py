@@ -278,6 +278,8 @@ class WeiBot:
                         doc.stag('img', src=pic['url'], klass='span_image', style="margin-top: 1em;")
 
         with tag('html'):
+            with tag('head'):
+                doc.asis('<meta charset="utf-8">')
             with tag('body'):
                 line('h3', 'Backup @ {}'.format(time.ctime()))
 
